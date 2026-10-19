@@ -1,7 +1,7 @@
 // عامل الخدمة: يجعل التطبيق يُثبَّت ويفتح حتى بلا إنترنت
 // غيّر الرقم عند كل تحديث لإجبار الهواتف على أخذ الجديد
 const PREFIX = 'isf-reg-';          // خاص بتسجيل المعلمات
-const CACHE = PREFIX + 'v1';
+const CACHE = PREFIX + 'v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 // مكتبات وخطوط من الإنترنت: تُحفظ من أول زيارة حتى تعمل الصفحة بلا اتصال
 const EXTRA = ["https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", "https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap"];
