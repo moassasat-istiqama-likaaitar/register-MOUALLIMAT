@@ -723,13 +723,24 @@ function netMsg(e) {
 }
 
 // التشغيل: نجلب القوائم من الشيت، وإن تأخر أو انقطع الإنترنت نستعمل المحفوظة في الهاتف
+// القوائم بأي شكل (نص أو {name, ws}) ← دائماً {name, ws} — حتى لا يظهر «undefined»
+function normCfg(c) {
+  const obj = x => (x && typeof x === 'object') ? { name: String(x.name || ''), ws: String(x.ws || '') } : { name: String(x || ''), ws: '' };
+  c.roles = (c.roles || []).map(obj).filter(x => x.name);
+  c.taughtLevels = (c.taughtLevels || []).map(obj).filter(x => x.name);
+  c.workshops = (c.workshops || []).filter(w => w && w.name);
+  c.schools = c.schools || []; c.experience = c.experience || [];
+  return c;
+}
 (async function boot() {
-  const cached = LS.get('cfg', null);
-  const fresh = api('config').then(c => { LS.set('cfg', c); return c; });
+  // «cfg3»: اسم جديد للقوائم المحفوظة — القوائم القديمة (قبل الورشات) لا تُستعمل أبداً
+  LS.del('cfg');
+  const cached = LS.get('cfg3', null);
+  const fresh = api('config').then(c => { LS.set('cfg3', c); return c; });
   try {
-    CONFIG = cached
+    CONFIG = normCfg(cached
       ? await Promise.race([fresh.catch(() => cached), new Promise(r => setTimeout(() => r(cached), 3000))])
-      : await fresh;
+      : await fresh);
   } catch (e) {
     document.getElementById('bootTxt').textContent = netMsg(e);
     const b = document.createElement('button'); b.textContent = 'إعادة المحاولة';
