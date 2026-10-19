@@ -180,8 +180,11 @@
     <label class="f">سنوات خبرتكِ في التعليم القرآني</label>
     <div class="seg col" id="exp"></div>
 
-    <label class="f">المستوى الذي تدرّسينه <span class="muted">(يمكن اختيار أكثر من مستوى)</span></label>
-    <div class="chips" id="levels"></div>
+    <div id="levelsBox" class="hidden">
+      <label class="f">المستوى الذي تدرّسينه <span class="muted">(يمكن اختيار أكثر من مستوى)</span></label>
+      <div class="chips" id="levels"></div>
+    </div>
+    <div class="wsPrev"><span class="sw" id="wsDot"></span><span id="wsText">ورشتكِ: تظهر بعد اختيار الوظيفة</span></div>
 
     <div class="warnNote" id="warnNote">⚠️ تأكّدي من معلوماتكِ قبل التسجيل. ولتعديلها لاحقاً تحتاجين <b>رمز بطاقتكِ</b> (تحت رمز QR) و<b>لقبكِ</b> عبر «تعديل تسجيلي».</div>
     <div class="err" id="err"></div>
@@ -287,7 +290,7 @@ function fillSelect(id, items, ph) {
 }
 fillSelect('school',  CONFIG.schools, 'اختاري المدرسة');
 fillSelect('cSchool', CONFIG.schools, 'اختاري المدرسة');
-fillSelect('role',    CONFIG.roles,   'اختاري الوظيفة');
+fillSelect('role',    CONFIG.roles.map(r => r.name), 'اختاري الوظيفة');
 $('exp').innerHTML = CONFIG.experience.map(x => `<label><input type="radio" name="exp" value="${esc(x)}">${esc(x)}</label>`).join('');
 document.querySelectorAll('#exp input').forEach(i => i.addEventListener('change', () => {
   document.querySelectorAll('#exp label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
@@ -302,7 +305,8 @@ function chips(boxId, items) {
     $(boxId).appendChild(l);
   });
 }
-chips('levels', CONFIG.taughtLevels);
+chips('levels', CONFIG.taughtLevels.map(t => t.name));
+$('levels').addEventListener('change', previewWs);
 chips('others', CONFIG.schools);
 const checked = boxId => [...$(boxId).querySelectorAll('input:checked')].map(i => i.value);
 function setChecked(boxId, values) {
@@ -321,17 +325,49 @@ function syncOthers() {
 $('school').addEventListener('change', syncOthers);
 $('moreBtn').addEventListener('click', () => { $('othersBox').classList.toggle('hidden'); syncOthers(); });
 
+// ====== الورشة: وظيفة لها ورشة ثابتة ← يختفي المستوى؛ وإلا ← الأكثر تكراراً بين المستويات ======
+function roleHasWs(role) { const r = CONFIG.roles.find(x => x.name === role); return !!(r && r.ws); }
+function onRoleChange() {
+  const role = $('role').value, show = !!role && !roleHasWs(role);
+  $('levelsBox').classList.toggle('hidden', !show);
+  if (!show) setChecked('levels', []);
+  previewWs();
+}
+$('role').addEventListener('change', onRoleChange);
+function selectedLevels() { return $('levelsBox').classList.contains('hidden') ? [] : checked('levels'); }
+function resolveWs(role, levels) {
+  const r = CONFIG.roles.find(x => x.name === role);
+  if (r && r.ws) return r.ws;
+  const count = {}; let best = '', bestN = 0;
+  levels.forEach(l => {
+    const t = CONFIG.taughtLevels.find(x => x.name === l);
+    if (t && t.ws) { count[t.ws] = (count[t.ws] || 0) + 1; if (count[t.ws] > bestN) { best = t.ws; bestN = count[t.ws]; } }
+  });
+  return best;
+}
+function wsColor(ws) { return (CONFIG.workshops.find(w => w.name === ws) || {}).color || '#6e5b78'; }
+function previewWs() {
+  const role = $('role').value, lv = selectedLevels();
+  if (!role || (!roleHasWs(role) && !lv.length)) {
+    $('wsText').textContent = 'ورشتكِ: تظهر بعد اختيار الوظيفة' + (role ? ' والمستوى' : '');
+    $('wsDot').style.background = '#6e5b78'; return;
+  }
+  const ws = resolveWs(role, lv);
+  $('wsText').textContent = ws ? 'ورشتكِ: ' + ws : 'ورشتكِ: تحددها الإدارة';
+  $('wsDot').style.background = wsColor(ws);
+}
+
 // ====== الإرسال ======
 $('form').addEventListener('submit', e => {
   e.preventDefault();
   const data = {
     first: val('first'), last: val('last'), father: val('father'),
     school: val('school'), others: checked('others'), role: val('role'),
-    exp: radioVal('exp'), levels: checked('levels')
+    exp: radioVal('exp'), levels: selectedLevels()
   };
   const miss = !data.first ? 'الاسم' : !data.last ? 'اللقب' : !data.father ? 'اسم الأب'
     : !data.school ? 'المدرسة' : !data.role ? 'الوظيفة'
-    : !data.exp ? 'سنوات الخبرة في التعليم القرآني' : !data.levels.length ? 'المستوى المدرَّس' : '';
+    : !data.exp ? 'سنوات الخبرة في التعليم القرآني' : (!roleHasWs(data.role) && !data.levels.length) ? 'المستوى المدرَّس' : '';
   if (miss) return setErr('يرجى إدخال: ' + miss);
   setErr('');
   if (EDIT) saveEdit(data); else send(data);
@@ -412,9 +448,9 @@ function enterEdit(rec) {
   EDIT = { code: rec.code, last: rec.last };
   resetForm();
   $('first').value = rec.first; $('last').value = rec.last; $('father').value = rec.father;
-  $('school').value = rec.school; $('role').value = rec.role;
+  $('school').value = rec.school; $('role').value = rec.role; onRoleChange();
   setRadio('exp', rec.exp);
-  setChecked('levels', rec.levels);
+  setChecked('levels', rec.levels); previewWs();
   setChecked('others', rec.others);
   $('othersBox').classList.toggle('hidden', !(rec.others || []).length); syncOthers();
   $('editTxt').textContent = '✏️ وضع التعديل — بطاقة ' + rec.code;
@@ -443,7 +479,7 @@ $('editMine').addEventListener('click', () => openEdit(current && current.code, 
 
 // ====== البطاقات المحفوظة في الهاتف: تُفتح حتى بلا إنترنت (عند الباب) ======
 function saveBadge(r) {
-  const b = {}; ['code', 'name', 'last', 'school', 'role'].forEach(k => b[k] = r[k]);
+  const b = {}; ['code', 'name', 'last', 'school', 'role', 'workshop', 'color', 'exp'].forEach(k => b[k] = r[k]);
   const list = LS.get('badges', []).filter(x => x.code !== b.code);
   list.unshift(b); LS.set('badges', list.slice(0, 10));
   renderSaved();
@@ -480,6 +516,7 @@ function resetForm() {
   $('form').reset(); setErr('');
   document.querySelectorAll('#levels label, #others label, #exp label').forEach(l => l.classList.remove('on', 'hidden'));
   $('othersBox').classList.add('hidden');
+  onRoleChange();
 }
 
 // ====== عرض البطاقة ======
@@ -502,20 +539,21 @@ async function showBadge(r) {
   window.scrollTo(0, 0);
 }
 
-// رسم البطاقة في الهاتف — بالعرض 106 × 76 ملم (300 نقطة/بوصة)، بلون موحّد من صفحة البيانات (H2)
+// رسم البطاقة — بالعرض 106 × 76 ملم (300 نقطة/بوصة)، بلون الورشة
+// بطاقة الهاتف: خانة المجموعة تدعو إلى البطاقة المطبوعة (رقم المجموعة يُكتب في المطبوعة فقط)
 async function drawBadge(r) {
-  try { await Promise.all(['800 80px Cairo', '800 120px Cairo', '700 40px Cairo', '400 30px Cairo'].map(f => document.fonts.load(f))); } catch (e) {}
+  try { await Promise.all(['800 80px Cairo', '800 230px Cairo', '700 40px Cairo', '400 30px Cairo'].map(f => document.fonts.load(f))); } catch (e) {}
   const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
   const [logo, emblem] = await Promise.all([loadImg(LOGO), loadImg(EMBLEM)]);
   const W = 1252, H = 898, M = 56;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const x = c.getContext('2d');
-  const color = CONFIG.color || '#7B1FA2';
+  const color = r.color || '#6b7280';
   const AMBER = '#F7A64B', BROWN = '#BB642F', FLAME = '#EE2B0D', INK = '#1d1420';
 
   // الخلفية
   x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
-  // الشريط العلوي: عنوان اللقاء
+  // شريط الورشة العلوي
   x.fillStyle = color; x.fillRect(0, 0, W, 132);
   x.save(); x.beginPath(); x.rect(0, 0, W, 132); x.clip();
   x.globalAlpha = .14; x.fillStyle = '#fff';
@@ -523,12 +561,12 @@ async function drawBadge(r) {
   x.beginPath(); x.arc(270, 150, 70, 0, 7); x.fill();
   x.restore();
   x.direction = 'rtl'; x.textAlign = 'right';
-  x.fillStyle = '#fff'; fit(CONFIG.title, W - M, 84, 800, 50, W - 2 * M - 120);
+  x.fillStyle = '#fff'; fit(r.workshop || 'الورشة: تُحدَّد لاحقاً', W - M, 86, 800, 54, W - 2 * M - 120);
   // الخطّان المزدوجان (من الشعار)
   x.fillStyle = AMBER; x.fillRect(0, 132, W, 8);
   x.fillStyle = FLAME; x.fillRect(W * .45, 146, W * .55, 3);
 
-  // رمز QR داخل إطار ملوّن
+  // رمز QR داخل إطار بلون الورشة
   const Q = 330, qx = M + 14, qy = 196;
   roundRect(qx - 18, qy - 18, Q + 36, Q + 36, 26); x.fillStyle = '#fff'; x.fill();
   x.lineWidth = 5; x.strokeStyle = color; x.stroke();
@@ -543,32 +581,53 @@ async function drawBadge(r) {
   x.direction = 'ltr'; x.textAlign = 'center'; x.fillStyle = INK; x.font = '700 34px Cairo';
   x.fillText(r.code, qx + Q / 2, qy + Q + 62);
 
-  // الاسم + الوظيفة
+  // الاسم + المدرسة · الوظيفة
   const tw = W - 2 * M - (Q + 90), tx = W - M - tw;
   x.direction = 'rtl'; x.textAlign = 'right';
   x.fillStyle = INK;       fit(r.name, W - M, 272, 800, 76, tw);
-  x.fillStyle = '#3d2f45'; fit(r.role || '', W - M, 336, 700, 38, tw);
+  x.fillStyle = '#3d2f45'; fit((r.school || '') + (r.role ? '  ·  ' + r.role : ''), W - M, 336, 700, 36, tw);
 
-  // لوحة المدرسة: كبيرة لتُقرأ من بعيد عند الباب
-  const py = 372, ph = 330;
-  roundRect(tx, py, tw, ph, 30); x.fillStyle = color; x.fill();
-  x.save(); roundRect(tx, py, tw, ph, 30); x.clip();
+  // لوحة المجموعة والخبرة — على شكل تذكرة
+  const py = 372, ph = 330, ew = 232, gap = 22;
+  const gw = tw - ew - gap, gx = tx + ew + gap;
+  roundRect(gx, py, gw, ph, 30); x.fillStyle = color; x.fill();
+  x.save(); roundRect(gx, py, gw, ph, 30); x.clip();
   x.globalAlpha = .13; x.fillStyle = '#fff';
-  x.beginPath(); x.arc(tx + 40, py + ph - 10, 120, 0, 7); x.fill();
-  x.beginPath(); x.arc(tx + tw - 30, py + 20, 60, 0, 7); x.fill();
+  x.beginPath(); x.arc(gx + 40, py + ph - 10, 120, 0, 7); x.fill();
+  x.beginPath(); x.arc(gx + gw - 30, py + 20, 60, 0, 7); x.fill();
   x.restore();
+  // المؤطِّرة (ورشتها تبدأ بـ«مؤطر»): لا مجموعة، تُكتب صفتها مكان الرقم
+  const facil = /^مؤطر/.test(String(r.workshop || '').trim());
   x.textAlign = 'center'; x.fillStyle = 'rgba(255,255,255,.88)'; x.font = '700 38px Cairo';
-  x.fillText('المدرسة', tx + tw / 2, py + 64);
-  x.fillStyle = AMBER; x.fillRect(tx + tw / 2 - 40, py + 84, 80, 6);
+  x.fillText(facil ? 'الصفة' : 'المجموعة', gx + gw / 2, py + 64);
+  x.fillStyle = AMBER; x.fillRect(gx + gw / 2 - 40, py + 84, 80, 6);
   x.fillStyle = '#fff';
-  schoolText(r.school || '', tx + tw / 2, py + 100, ph - 120, tw - 60);
+  if (facil) { x.direction = 'rtl'; fitC('مؤطِّرة', gx + gw / 2, py + ph - 70, 800, 150, gw - 60); }
+  else {
+    x.direction = 'rtl'; x.font = '700 40px Cairo'; x.fillStyle = '#fff';
+    ['عند الدخول', 'اطلبي بطاقتكِ المطبوعة', 'لتعرفي رقم مجموعتكِ'].forEach((t, i) => x.fillText(t, gx + gw / 2, py + 165 + i * 58, gw - 40));
+  }
+  // خانة الخبرة: بيضاء بإطار كهرماني
+  x.direction = 'rtl';
+  roundRect(tx, py, ew, ph, 30); x.fillStyle = '#FFF8EF'; x.fill();
+  x.lineWidth = 6; x.strokeStyle = AMBER; x.stroke();
+  x.fillStyle = BROWN; x.font = '700 38px Cairo'; x.fillText('الخبرة', tx + ew / 2, py + 64);
+  x.direction = 'ltr'; x.fillStyle = INK;
+  fitC(r.exp || '—', tx + ew / 2, py + ph - 42, 800, 230, ew - 40);
+  // ثقوب التذكرة بين الخانتين
+  const hx = tx + ew + gap / 2;
+  x.fillStyle = '#fff';
+  [py, py + ph].forEach(yy => { x.beginPath(); x.arc(hx, yy, 18, 0, 7); x.fill(); });
+  x.fillStyle = '#d9d2c7';
+  for (let yy = py + 34; yy < py + ph - 30; yy += 22) x.fillRect(hx - 2, yy, 4, 11);
 
-  // التذييل: الشعار + تاريخ اللقاء
+  // التذييل: الشعار + عنوان اللقاء وتاريخه
   x.direction = 'rtl'; x.textAlign = 'right';
   let lw = 0;
   if (logo) { const lh = 96; lw = logo.width * lh / logo.height; x.drawImage(logo, W - M - lw, H - 40 - lh - 22, lw, lh); }
   const fx = W - M - lw - 28, fw = fx - (Q + M + 90);
-  if (CONFIG.date) { x.fillStyle = BROWN; fit(CONFIG.date, fx, H - 96, 700, 28, fw); }
+  x.fillStyle = BROWN; fit(CONFIG.title, fx, H - 120, 700, 30, fw);
+  if (CONFIG.date) { x.fillStyle = '#8a7a6c'; fit(CONFIG.date, fx, H - 78, 400, 26, fw); }
   // شريط سفلي رفيع
   x.fillStyle = color; x.fillRect(0, H - 22, W, 22);
   x.fillStyle = AMBER; x.fillRect(0, H - 22, W * .18, 22);
@@ -579,24 +638,10 @@ async function drawBadge(r) {
     do { x.font = `${weight} ${s}px Cairo`; s -= 2; } while (x.measureText(t).width > maxW && s > 14);
     x.fillText(t, px, y);
   }
-  // اسم المدرسة: سطر واحد كبير، وإن طال ← سطران
-  function schoolText(t, cx, top, h, maxW) {
-    x.direction = 'rtl'; x.textAlign = 'center';
-    let s = 120;
-    x.font = `800 ${s}px Cairo`;
-    while (x.measureText(t).width > maxW && s > 70) { s -= 4; x.font = `800 ${s}px Cairo`; }
-    if (x.measureText(t).width <= maxW) { x.fillText(t, cx, top + h / 2 + s * .35); return; }
-    const w = t.split(' ');
-    let best = 1, diff = 1e9;
-    for (let i = 1; i < w.length; i++) {
-      const d = Math.abs(w.slice(0, i).join(' ').length - w.slice(i).join(' ').length);
-      if (d < diff) { diff = d; best = i; }
-    }
-    const lines = w.length > 1 ? [w.slice(0, best).join(' '), w.slice(best).join(' ')] : [t];
-    s = 84; x.font = `800 ${s}px Cairo`;
-    while (lines.some(l => x.measureText(l).width > maxW) && s > 30) { s -= 3; x.font = `800 ${s}px Cairo`; }
-    const lh = s * 1.15, y0 = top + h / 2 - lh / 2 + s * .35;
-    lines.forEach((l, i) => x.fillText(l, cx, y0 + i * lh));
+  function fitC(t, px, y, weight, size, maxW) {
+    let s = size;
+    do { x.font = `${weight} ${s}px Cairo`; s -= 4; } while (x.measureText(t).width > maxW && s > 20);
+    x.fillText(t, px, y);
   }
   function roundRect(a, b, w, h, rad) {
     x.beginPath(); x.moveTo(a + rad, b); x.arcTo(a + w, b, a + w, b + h, rad); x.arcTo(a + w, b + h, a, b + h, rad);
